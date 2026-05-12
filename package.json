@@ -1,6 +1,6 @@
 {
   "name": "@bunnarin/plugin-hooks",
-  "version": "2.0.8",
+  "version": "1.0.0",
   "main": "dist/server/index.js",
   "displayName": "Hooks System",
   "description": "A hooks system similar to PocketBase's pb_hooks, allowing custom code execution in storage/hooks directory",
@@ -10,11 +10,8 @@
     "@nocobase/server": "2.x",
     "@nocobase/test": "2.x"
   },
-  "keywords": [
-    "hooks",
-    "events",
-    "customization",
-    "automation"
-  ],
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  }
 }
