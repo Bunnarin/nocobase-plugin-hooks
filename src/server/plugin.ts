@@ -102,8 +102,6 @@ export class PluginHooksServer extends Plugin {
       });
 
       this.log.info('Hook dependencies installed successfully');
-      if (process.env.NODE_ENV !== 'production')
-        this.log.debug('Yarn install output:', result);
     } catch (error) {
       this.log.error('Failed to install hook dependencies:', error);
       // Don't throw error, just log it so hooks can still load
@@ -216,6 +214,30 @@ jspm_packages/
       fs.writeFileSync(tsConfigPath, JSON.stringify(tsConfig, null, 2), 'utf8');
   }
 
+  // Recursively collect all .ts/.js files from a directory
+  private collectHookFiles(dir: string, prefix: string = ''): { file: string; filePath: string }[] {
+    const results: { file: string; filePath: string }[] = [];
+    if (!existsSync(dir)) return results;
+
+    for (const entry of readdirSync(dir)) {
+      const fullPath = join(dir, entry);
+      try {
+        const stat = statSync(fullPath);
+        if (stat.isDirectory()) {
+          // Skip node_modules, dist, .git, etc.
+          if (entry === 'node_modules' || entry === 'dist' || entry === '.git' || entry === 'client')
+            continue;
+          const subPrefix = prefix ? `${prefix}/${entry}` : entry;
+          results.push(...this.collectHookFiles(fullPath, subPrefix));
+        } else if (stat.isFile() && (entry.endsWith('.ts') || entry.endsWith('.js'))) {
+          const relName = prefix ? `${prefix}/${entry}` : entry;
+          results.push({ file: relName, filePath: fullPath });
+        }
+      } catch { /* skip */ }
+    }
+    return results;
+  }
+
   private async loadHookPlugins() {
     // Unload existing hook plugins
     await this.unloadHookPlugins();
@@ -229,24 +251,11 @@ jspm_packages/
     // Install dependencies if needed
     await this.installHookDependencies();
 
-    const files = readdirSync(this.hooksDir);
+    const hookFiles = this.collectHookFiles(this.hooksDir);
     
-    for (const file of files) {
-      // Only load .ts and .js files, skip directories and non-plugin files
-      if (!file.endsWith('.ts') && !file.endsWith('.js'))
-        continue;
-
-      const filePath = join(this.hooksDir, file);
-
-      // Skip directories
-      try {
-        if (statSync(filePath).isDirectory())
-          continue;
-      } catch {
-        continue;
-      }
-
-      const hookPluginName = `hooks-${file.replace(/\.(ts|js)$/, '')}`;
+    for (const { file, filePath } of hookFiles) {
+      // Generate plugin name from relative path: "audit/user-audit.ts" -> "hooks-audit-user-audit"
+      const hookPluginName = `hooks-${file.replace(/\.(ts|js)$/, '').replace(/[\/]/g, '-')}`;
 
       try {
         const HookPluginClass = await this.importHookPlugin(filePath);
@@ -339,33 +348,41 @@ jspm_packages/
   }
 
   private setupHookWatching() {
+    this.log.info(`[hooks-watch] setupHookWatching called, hooksDir=${this.hooksDir}, exists=${existsSync(this.hooksDir)}`);
     if (!existsSync(this.hooksDir)) return;
 
-    // Snapshot current file mtimes
+    // Snapshot current file mtimes (recursive)
     this.snapshotModTimes();
+    this.log.info(`[hooks-watch] snapshotModTimes done, tracking ${this.fileModTimes.size} files`);
 
-    // Try fs.watch (works on native, NOT on Docker bind mounts)
-      this.watcher = watch(this.hooksDir, { recursive: false }, (eventType, filename) => {
-        if (!filename) return;
-        if (!filename.endsWith('.ts') && !filename.endsWith('.js'))
+    // fs.watch with recursive:true to catch changes in subdirectories
+    try {
+      watch(this.hooksDir, { recursive: true }, (eventType, filename) => {
+        this.log.info(`[hooks-watch] fs.watch callback: event=${eventType}, file=${filename}`);
+        if (!filename) {
+          this.log.info(`[hooks-watch] filename is null/empty, skipping`);
           return;
+        }
+        if (!filename.endsWith('.ts') && !filename.endsWith('.js')) {
+          this.log.info(`[hooks-watch] not .ts/.js, skipping: ${filename}`);
+          return;
+        }
         this.app.runAsCLI(['restart'], {from: 'user'});
       });
+      this.log.info(`[hooks-watch] fs.watch registered (recursive: true)`);
+    } catch (err) {
+      this.log.warn(`[hooks-watch] recursive watch failed, falling back:`, err);
+    }
   }
 
   private snapshotModTimes() {
     this.fileModTimes.clear();
-      const files = readdirSync(this.hooksDir);
-      for (const file of files) {
-        if (!file.endsWith('.ts') && !file.endsWith('.js')) continue;
-        const filePath = join(this.hooksDir, file);
-        try {
-          const stat = statSync(filePath);
-          if (stat.isFile()) {
-            this.fileModTimes.set(filePath, stat.mtimeMs);
-          }
-        } catch { /* skip */ }
-      }
+    const hookFiles = this.collectHookFiles(this.hooksDir);
+    for (const { filePath } of hookFiles) {
+      try {
+        this.fileModTimes.set(filePath, statSync(filePath).mtimeMs);
+      } catch { /* skip */ }
+    }
   }
 
   // Public API to get loaded hook plugins

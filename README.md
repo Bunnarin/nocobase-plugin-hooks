@@ -59,32 +59,8 @@ The `storage/hooks/package.json` file allows you to:
 - **Configure TypeScript**: Set up TypeScript compilation options
 - **Add Metadata**: Include information about your hooks collection
 
-#### Example package.json
-
-```json
-{
-  "name": "nocobase-hooks",
-  "version": "1.0.0",
-  "description": "Custom hooks for NocoBase",
-  "type": "module",
-  "scripts": {
-    "dev": "tsc --watch",
-    "build": "tsc",
-    "lint": "eslint . --ext .ts,.js"
-  },
-  "dependencies": {
-    "nodemailer": "^6.9.0",
-    "moment": "^2.29.0",
-    "lodash": "^4.17.21"
-  },
-  "devDependencies": {
-    "@types/node": "^18.0.0",
-    "typescript": "^5.0.0",
-    "eslint": "^8.0.0"
-  },
-  "keywords": ["nocobase", "hooks", "customization"]
-}
-```
+#### Important note
+fs.watch will be used to watch for changes in the hooks directory. For Docker deployment, this will not work on Docker desktop, but it will work on linux (hopefully your production env when you run git pull). This mean that on window and mac, you'll have to manually restart the app when you make changes to your hooks.
 
 #### Using Dependencies
 
