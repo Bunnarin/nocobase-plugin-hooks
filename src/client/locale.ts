@@ -7,15 +7,25 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { tExpr as _tExpr, useFlowEngine } from '@nocobase/flow-engine';
-// @ts-ignore
-import pkg from './../../package.json';
+export const NAMESPACE = 'hooks';
+
+// @ts-ignore - i18n is available at runtime but not during build
+import { i18n } from '@nocobase/client';
+import { useTranslation } from 'react-i18next';
+
+export function useHooksTranslation() {
+  return useTranslation([NAMESPACE, 'client'], { nsMode: 'fallback' });
+}
+
+export function lang(key: string) {
+  return i18n?.t(key, { ns: [NAMESPACE, 'client'], nsMode: 'fallback' }) || key;
+}
 
 export function useT() {
-  const engine = useFlowEngine();
-  return (str: string) => engine.context.t(str, { ns: [pkg.name, 'client'] });
+  const { t } = useHooksTranslation();
+  return t;
 }
 
 export function tExpr(key: string) {
-  return _tExpr(key, { ns: [pkg.name, 'client'] });
+  return lang(key);
 }

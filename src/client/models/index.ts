@@ -7,6 +7,5 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { ModelConstructor } from '@nocobase/flow-engine';
-
-export default {} as Record<string, ModelConstructor>;
+// Models file - can be used for future frontend data models
+export default {};

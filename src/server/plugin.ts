@@ -1,6 +1,6 @@
 import { Plugin } from '@nocobase/server';
 import { join } from 'path';
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, statSync, watch } from 'fs';
 
 export interface HookPlugin {
   name: string;
@@ -11,8 +11,8 @@ export interface HookPlugin {
 export class PluginHooksServer extends Plugin {
   private hookPlugins: Map<string, HookPlugin> = new Map();
   private hooksDir: string;
-  private watchInterval: NodeJS.Timeout | null = null;
   private hooksPackageJson: any = null;
+  private fileModTimes: Map<string, number> = new Map();
 
   async afterAdd() {
     // Set up hooks directory in storage/hooks
@@ -21,15 +21,15 @@ export class PluginHooksServer extends Plugin {
   }
 
   async beforeLoad() {
-    // Load hook plugins before the main plugin loads
-    await this.loadHookPlugins();
+    // Nothing needed here - hooks are loaded in load()
   }
 
   async load() {
-    // Set up file watching for development
-    if (process.env.NODE_ENV === 'development') {
-      this.setupHookWatching();
-    }
+    // Load hook plugins during the load phase when PluginManager is fully ready
+    await this.loadHookPlugins();
+
+    // Set up file watching for hot-reload (works in all environments including Docker)
+    this.setupHookWatching();
   }
 
   async install() {
@@ -45,25 +45,17 @@ export class PluginHooksServer extends Plugin {
   async afterDisable() {
     // Clean up hook plugins when disabled
     await this.unloadHookPlugins();
-    if (this.watchInterval) {
-      clearInterval(this.watchInterval);
-      this.watchInterval = null;
-    }
   }
 
   async remove() {
     // Clean up
     await this.unloadHookPlugins();
-    if (this.watchInterval) {
-      clearInterval(this.watchInterval);
-    }
   }
 
   private ensureHooksDirectory() {
     const fs = require('fs');
-    if (!existsSync(this.hooksDir)) {
+    if (!existsSync(this.hooksDir))
       fs.mkdirSync(this.hooksDir, { recursive: true });
-    }
   }
 
   private loadHooksPackageJson() {
@@ -83,9 +75,8 @@ export class PluginHooksServer extends Plugin {
   }
 
   private async installHookDependencies() {
-    if (!this.hooksPackageJson) {
+    if (!this.hooksPackageJson)
       return;
-    }
 
     const nodeModulesPath = join(this.hooksDir, 'node_modules');
     const yarnLockPath = join(this.hooksDir, 'yarn.lock');
@@ -111,9 +102,8 @@ export class PluginHooksServer extends Plugin {
       });
 
       this.log.info('Hook dependencies installed successfully');
-      if (process.env.NODE_ENV !== 'production') {
+      if (process.env.NODE_ENV !== 'production')
         this.log.debug('Yarn install output:', result);
-      }
     } catch (error) {
       this.log.error('Failed to install hook dependencies:', error);
       // Don't throw error, just log it so hooks can still load
@@ -128,23 +118,10 @@ export class PluginHooksServer extends Plugin {
       name: "nocobase-hooks",
       version: "1.0.0",
       description: "Custom hooks for NocoBase",
-      type: "module",
-      scripts: {
-        "dev": "tsc --watch",
-        "build": "tsc",
-        "lint": "eslint . --ext .ts,.js"
-      },
-      dependencies: {
-        // Add your hook-specific dependencies here
-        "nodemailer": "^6.9.0",
-        "moment": "^2.29.0"
-      },
-      devDependencies: {
-        "@types/node": "^18.0.0",
-        "typescript": "^5.0.0",
-        "eslint": "^8.0.0"
-      },
-      keywords: ["nocobase", "hooks", "customization"]
+      peerDependencies: {
+        "nocobase/server": "2.x.x",
+        "nocobase/client": "2.x.x"
+      }
     };
 
     const packageJsonPath = join(this.hooksDir, 'package.json');
@@ -204,9 +181,8 @@ jspm_packages/
 `;
 
     const gitignorePath = join(this.hooksDir, '.gitignore');
-    if (!existsSync(gitignorePath)) {
+    if (!existsSync(gitignorePath))
       fs.writeFileSync(gitignorePath, gitignoreContent, 'utf8');
-    }
 
     // Create tsconfig.json for TypeScript support
     const tsConfig = {
@@ -236,129 +212,16 @@ jspm_packages/
     };
 
     const tsConfigPath = join(this.hooksDir, 'tsconfig.json');
-    if (!existsSync(tsConfigPath)) {
+    if (!existsSync(tsConfigPath))
       fs.writeFileSync(tsConfigPath, JSON.stringify(tsConfig, null, 2), 'utf8');
-    }
-    
-    // Create example hook plugins that extend NocoBase like regular plugins
-    const examples = {
-      'user-audit.ts': `import { Plugin } from '@nocobase/server';
-
-export default class UserAuditPlugin extends Plugin {
-  async load() {
-    // Add audit logging for user operations
-    this.db.on('users.afterCreate', async (model, options) => {
-      this.log.info('User created:', {
-        id: model.id,
-        email: model.email,
-        createdAt: model.createdAt
-      });
-    });
-
-    this.db.on('users.afterUpdate', async (model, options) => {
-      this.log.info('User updated:', {
-        id: model.id,
-        changedFields: Object.keys(model.changed || {})
-      });
-    });
-
-    // Add custom action
-    this.app.resource({
-      name: 'userAudit',
-      actions: {
-        async getAuditLog(ctx, next) {
-          const { filter } = ctx.action.params;
-          // Custom audit logic here
-          ctx.body = { message: 'User audit log functionality' };
-        }
-      }
-    });
-  }
-}`,
-      
-      'collection-validator.ts': `import { Plugin } from '@nocobase/server';
-
-export default class CollectionValidatorPlugin extends Plugin {
-  async load() {
-    // Add validation for all collections
-    this.db.on('collections.beforeCreate', async (model, options) => {
-      const restrictedNames = ['admin', 'system', 'root', 'config'];
-      if (restrictedNames.includes(model.name)) {
-        throw new Error(\`Collection name "\${model.name}" is reserved\`);
-      }
-
-      // Validate collection structure
-      if (model.name && !/^[a-z][a-z0-9_]*$/i.test(model.name)) {
-        throw new Error('Collection name must start with a letter and contain only letters, numbers, and underscores');
-      }
-
-      this.log.info('Collection validation passed:', model.name);
-    });
-
-    // Add custom middleware for collection operations
-    this.app.middleware.push(async (ctx, next) => {
-      if (ctx.path.startsWith('/api/collections') && ctx.method === 'POST') {
-        this.log.info('Collection creation attempt:', {
-          path: ctx.path,
-          body: ctx.request.body
-        });
-      }
-      await next();
-    });
-  }
-}`,
-      
-      'request-logger.ts': `import { Plugin } from '@nocobase/server';
-
-export default class RequestLoggerPlugin extends Plugin {
-  private startTime = new Map();
-
-  async load() {
-    // Add request timing middleware
-    this.app.middleware.push(async (ctx, next) => {
-      const start = Date.now();
-      this.startTime.set(ctx.req, start);
-
-      // Log request start
-      this.log.info('Request started:', {
-        method: ctx.method,
-        path: ctx.path,
-        ip: ctx.ip,
-        userAgent: ctx.get('User-Agent')
-      });
-
-      await next();
-
-      // Calculate and log request duration
-      const duration = Date.now() - (this.startTime.get(ctx.req) || start);
-      this.startTime.delete(ctx.req);
-
-      this.log.info('Request completed:', {
-        method: ctx.method,
-        path: ctx.path,
-        status: ctx.status,
-        duration: \`\${duration}ms\`
-      });
-    });
-  }
-}`
-    };
-
-    for (const [filename, content] of Object.entries(examples)) {
-      const filePath = join(this.hooksDir, filename);
-      if (!existsSync(filePath)) {
-        fs.writeFileSync(filePath, content, 'utf8');
-      }
-    }
   }
 
   private async loadHookPlugins() {
     // Unload existing hook plugins
     await this.unloadHookPlugins();
 
-    if (!existsSync(this.hooksDir)) {
+    if (!existsSync(this.hooksDir))
       return;
-    }
 
     // Load package.json from hooks directory
     this.loadHooksPackageJson();
@@ -369,68 +232,87 @@ export default class RequestLoggerPlugin extends Plugin {
     const files = readdirSync(this.hooksDir);
     
     for (const file of files) {
-      if (file.endsWith('.ts') || file.endsWith('.js')) {
-        try {
-          const filePath = join(this.hooksDir, file);
-          const HookPluginClass = await this.importHookPlugin(filePath);
-          
-          if (HookPluginClass && typeof HookPluginClass === 'function') {
-            // Create plugin instance
-            const hookPluginName = file.replace(/\.(ts|js)$/, '');
-            const hookPluginInstance = new HookPluginClass(this.app, {
-              name: hookPluginName,
-              packageName: `hooks.${hookPluginName}`
-            });
+      // Only load .ts and .js files, skip directories and non-plugin files
+      if (!file.endsWith('.ts') && !file.endsWith('.js'))
+        continue;
 
-            // Store the hook plugin
+      const filePath = join(this.hooksDir, file);
+
+      // Skip directories
+      try {
+        if (statSync(filePath).isDirectory())
+          continue;
+      } catch {
+        continue;
+      }
+
+      const hookPluginName = `hooks-${file.replace(/\.(ts|js)$/, '')}`;
+
+      try {
+        const HookPluginClass = await this.importHookPlugin(filePath);
+          
+        if (HookPluginClass && typeof HookPluginClass === 'function') {
+          // Check if plugin is already registered (happens on reload)
+          const existing = this.app.pm.get(hookPluginName);
+          
+          if (existing) {
+            // Plugin already registered — just re-run load() for hot-reload
+            // Clear old state so load() can re-register resources
+            existing.state = existing.state || {};
+            existing.state.loaded = false;
+            await existing.beforeLoad();
+            await existing.load();
+            existing.state.loaded = true;
+            existing.enabled = true;
+
             this.hookPlugins.set(hookPluginName, {
               name: hookPluginName,
-              instance: hookPluginInstance,
+              instance: existing,
               filePath
             });
 
-            // Execute plugin lifecycle methods
-            await this.executeHookPluginLifecycle(hookPluginInstance);
+            this.log.info(`Reloaded hook plugin: ${hookPluginName} from ${file}`);
+          } else {
+            // First time: register through PluginManager for proper ACL, proxy, etc.
+            await this.app.pm.add(HookPluginClass, {
+              name: hookPluginName,
+              enabled: true,
+            });
 
-            this.log.info(`Loaded hook plugin: ${hookPluginName} from ${file}`);
+            const instance = this.app.pm.get(hookPluginName);
+
+            if (instance) {
+              this.hookPlugins.set(hookPluginName, {
+                name: hookPluginName,
+                instance,
+                filePath
+              });
+
+              // Run lifecycle: beforeLoad -> load
+              await instance.beforeLoad();
+              await instance.load();
+              instance.state = instance.state || {};
+              instance.state.loaded = true;
+              instance.enabled = true;
+
+              this.log.info(`Loaded hook plugin: ${hookPluginName} from ${file}`);
+            }
           }
-        } catch (error) {
-          this.log.error(`Failed to load hook plugin from ${file}:`, error);
         }
+      } catch (error) {
+        this.log.error(`Failed to load hook plugin from ${file}:`, error);
       }
-    }
-  }
-
-  private async executeHookPluginLifecycle(hookPlugin: any) {
-    try {
-      // Execute plugin lifecycle methods in order
-      if (typeof hookPlugin.afterAdd === 'function') {
-        await hookPlugin.afterAdd();
-      }
-      
-      if (typeof hookPlugin.beforeLoad === 'function') {
-        await hookPlugin.beforeLoad();
-      }
-      
-      if (typeof hookPlugin.load === 'function') {
-        await hookPlugin.load();
-      }
-
-      if (typeof hookPlugin.install === 'function') {
-        // Don't auto-install hook plugins
-        // await hookPlugin.install();
-      }
-    } catch (error) {
-      this.log.error(`Error executing hook plugin lifecycle:`, error);
     }
   }
 
   private async unloadHookPlugins() {
     for (const [name, hookPlugin] of this.hookPlugins) {
       try {
-        if (typeof hookPlugin.instance.afterDisable === 'function') {
-          await hookPlugin.instance.afterDisable();
-        }
+        const instance = hookPlugin.instance;
+        if (instance && typeof instance.afterDisable === 'function')
+          await instance.afterDisable();
+        // Note: We don't remove from PluginManager to avoid issues during reload.
+        // The plugin will be overwritten on next load.
       } catch (error) {
         this.log.error(`Error unloading hook plugin ${name}:`, error);
       }
@@ -439,24 +321,51 @@ export default class RequestLoggerPlugin extends Plugin {
   }
 
   private async importHookPlugin(filePath: string): Promise<any> {
-    // Clear require cache for development
-    if (process.env.NODE_ENV === 'development') {
-      delete (require as any).cache[(require as any).resolve(filePath)];
+    // ALWAYS clear require cache — in Docker (production) the cached module
+    // would never update even after app restart
+    try {
+      const resolved = (require as any).resolve(filePath);
+      if ((require as any).cache[resolved])
+        delete (require as any).cache[resolved];
+    } catch {
+      // not in cache yet
     }
     
-    const module = (require as any)(filePath);
-    return module.default || module;
+    // Load the module and handle __esModule default export pattern
+    const m = (require as any)(filePath);
+    if (typeof m !== 'object')
+      return m;
+    return m.__esModule ? m.default : m;
   }
 
   private setupHookWatching() {
-    // Simple file watching for development
-    this.watchInterval = setInterval(async () => {
-      try {
-        await this.loadHookPlugins();
-      } catch (error) {
-        this.log.error('Error reloading hook plugins:', error);
+    if (!existsSync(this.hooksDir)) return;
+
+    // Snapshot current file mtimes
+    this.snapshotModTimes();
+
+    // Try fs.watch (works on native, NOT on Docker bind mounts)
+      this.watcher = watch(this.hooksDir, { recursive: false }, (eventType, filename) => {
+        if (!filename) return;
+        if (!filename.endsWith('.ts') && !filename.endsWith('.js'))
+          return;
+        this.app.runAsCLI(['restart'], {from: 'user'});
+      });
+  }
+
+  private snapshotModTimes() {
+    this.fileModTimes.clear();
+      const files = readdirSync(this.hooksDir);
+      for (const file of files) {
+        if (!file.endsWith('.ts') && !file.endsWith('.js')) continue;
+        const filePath = join(this.hooksDir, file);
+        try {
+          const stat = statSync(filePath);
+          if (stat.isFile()) {
+            this.fileModTimes.set(filePath, stat.mtimeMs);
+          }
+        } catch { /* skip */ }
       }
-    }, 2000); // Check every 2 seconds
   }
 
   // Public API to get loaded hook plugins
@@ -475,24 +384,33 @@ export default class RequestLoggerPlugin extends Plugin {
     if (hookPlugin) {
       try {
         // Unload
-        if (typeof hookPlugin.instance.afterDisable === 'function') {
-          await hookPlugin.instance.afterDisable();
+        const oldInstance = hookPlugin.instance;
+        if (oldInstance && typeof oldInstance.afterDisable === 'function') {
+          await oldInstance.afterDisable();
         }
 
-        // Reload
+        // Reload via PluginManager
         const HookPluginClass = await this.importHookPlugin(hookPlugin.filePath);
         if (HookPluginClass) {
-          const newInstance = new HookPluginClass(this.app, {
+          await this.app.pm.add(HookPluginClass, {
             name: hookPlugin.name,
-            packageName: `hooks.${hookPlugin.name}`
+            enabled: true,
           });
 
-          this.hookPlugins.set(name, {
-            ...hookPlugin,
-            instance: newInstance
-          });
+          const newInstance = this.app.pm.get(hookPlugin.name);
+          if (newInstance) {
+            await newInstance.beforeLoad();
+            await newInstance.load();
+            newInstance.state = newInstance.state || {};
+            newInstance.state.loaded = true;
+            newInstance.enabled = true;
 
-          await this.executeHookPluginLifecycle(newInstance);
+            this.hookPlugins.set(name, {
+              ...hookPlugin,
+              instance: newInstance
+            });
+          }
+
           this.log.info(`Reloaded hook plugin: ${name}`);
         }
       } catch (error) {

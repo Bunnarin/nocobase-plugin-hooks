@@ -14,12 +14,20 @@ A hooks system for NocoBase similar to PocketBase's `pb_hooks`, allowing you to 
 
 1. Install the plugin:
 ```bash
-yarn add @bunnarin/plugin-hooks
+yarn pm add @bunnarin/plugin-hooks
 ```
 
 2. Enable the plugin in NocoBase admin panel or via CLI:
 ```bash
 yarn pm enable @bunnarin/plugin-hooks
+```
+
+3. Enable version control by creating a .gitignore file in the storage/hooks/ directory:
+
+And add the following line to .gitignore:
+```bash
+storage/*
+!storage/hooks/
 ```
 
 ## Documentation
