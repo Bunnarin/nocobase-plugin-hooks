@@ -1,6 +1,6 @@
 import { Plugin } from '@nocobase/server';
 import { join } from 'path';
-import { existsSync, readdirSync, statSync, watch } from 'fs';
+import { existsSync, readdirSync, statSync } from 'fs';
 
 export interface HookPlugin {
   name: string;
@@ -13,6 +13,7 @@ export class PluginHooksServer extends Plugin {
   private hooksDir: string;
   private hooksPackageJson: any = null;
   private fileModTimes: Map<string, number> = new Map();
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   async afterAdd() {
     // Set up hooks directory in storage/hooks
@@ -44,11 +45,13 @@ export class PluginHooksServer extends Plugin {
 
   async afterDisable() {
     // Clean up hook plugins when disabled
+    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
     await this.unloadHookPlugins();
   }
 
   async remove() {
     // Clean up
+    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
     await this.unloadHookPlugins();
   }
 
@@ -126,9 +129,8 @@ export class PluginHooksServer extends Plugin {
     };
 
     const packageJsonPath = join(this.hooksDir, 'package.json');
-    if (!existsSync(packageJsonPath)) {
+    if (!existsSync(packageJsonPath))
       fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2), 'utf8');
-    }
 
     // Create .gitignore for hooks directory
     const gitignoreContent = `# Dependencies
@@ -358,23 +360,47 @@ jspm_packages/
     this.snapshotModTimes();
     this.log.info(`[hooks-watch] snapshotModTimes done, tracking ${this.fileModTimes.size} files`);
 
-    // fs.watch with recursive:true to catch changes in subdirectories
-    try {
-      watch(this.hooksDir, { recursive: true }, (eventType, filename) => {
-        this.log.info(`[hooks-watch] fs.watch callback: event=${eventType}, file=${filename}`);
-        if (!filename) {
-          this.log.info(`[hooks-watch] filename is null/empty, skipping`);
-          return;
+    // Poll for file changes instead of fs.watch (works reliably in Docker / bind-mounts / git pull)
+    const pollIntervalMs = parseInt(process.env.HOOKS_POLL_INTERVAL || '3000', 10);
+    this.pollTimer = setInterval(() => this.pollForChanges(), pollIntervalMs);
+    this.log.info(`[hooks-watch] polling every ${pollIntervalMs}ms`);
+  }
+
+  private pollForChanges() {
+    if (!existsSync(this.hooksDir)) return;
+
+    const currentFiles = this.collectHookFiles(this.hooksDir);
+    const currentMap = new Map<string, number>();
+
+    for (const { filePath } of currentFiles) {
+      try {
+        currentMap.set(filePath, statSync(filePath).mtimeMs);
+      } catch { /* deleted between list and stat */ }
+    }
+
+    // Detect added, modified, or removed files
+    let changed = false;
+    for (const [fp, mtime] of currentMap) {
+      const prev = this.fileModTimes.get(fp);
+      if (prev === undefined || prev !== mtime) {
+        this.log.info(`[hooks-watch] changed: ${fp}`);
+        changed = true;
+        break;
+      }
+    }
+    if (!changed)
+      for (const fp of this.fileModTimes.keys())
+        if (!currentMap.has(fp)) {
+          this.log.info(`[hooks-watch] removed: ${fp}`);
+          changed = true;
+          break;
         }
-        if (!filename.endsWith('.ts') && !filename.endsWith('.js')) {
-          this.log.info(`[hooks-watch] not .ts/.js, skipping: ${filename}`);
-          return;
-        }
-        this.app.runAsCLI(['restart'], {from: 'user'});
-      });
-      this.log.info(`[hooks-watch] fs.watch registered (recursive: true)`);
-    } catch (err) {
-      this.log.warn(`[hooks-watch] recursive watch failed, falling back:`, err);
+
+    if (changed) {
+      this.log.info('[hooks-watch] hook files changed — exiting process for container restart');
+      // Give the log a moment to flush, then exit.
+      // Docker restart policy (restart: always / unless-stopped) will respawn the container.
+      setTimeout(() => process.exit(0), 500);
     }
   }
 
