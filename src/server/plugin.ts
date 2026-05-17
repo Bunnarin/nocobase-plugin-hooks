@@ -117,8 +117,11 @@ export class PluginHooksServer extends Plugin {
       version: "1.0.0",
       description: "Custom hooks for NocoBase",
       peerDependencies: {
-        "nocobase/server": "2.x.x",
-        "nocobase/client": "2.x.x"
+        "@nocobase/server": "2.x.x",
+        "@nocobase/client": "2.x.x"
+      },
+      devDependencies: {
+        "@types/node": "^25.8.0"
       }
     };
 
