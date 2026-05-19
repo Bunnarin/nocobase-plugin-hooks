@@ -1,6 +1,6 @@
 {
   "name": "@bunnarin/plugin-hooks",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "main": "dist/server/index.js",
   "displayName": "Hooks System",
   "description": "A hooks system similar to PocketBase's pb_hooks, allowing custom code execution in storage/hooks directory",
@@ -12,5 +12,9 @@
   "license": "Apache-2.0",
   "publishConfig": {
     "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Bunnarin/nocobase-plugin-hooks"
   }
 }

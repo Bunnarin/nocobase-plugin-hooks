@@ -59,9 +59,6 @@ The `storage/hooks/package.json` file allows you to:
 - **Configure TypeScript**: Set up TypeScript compilation options
 - **Add Metadata**: Include information about your hooks collection
 
-#### Important note
-fs.watch will be used to watch for changes in the hooks directory. For Docker deployment, this will not work on Docker desktop, but it will work on linux (hopefully your production env when you run git pull). This mean that on window and mac, you'll have to manually restart the app when you make changes to your hooks.
-
 #### Using Dependencies
 
 Once you add dependencies to `storage/hooks/package.json`, the hooks system will **automatically install them** using Yarn when the plugin loads. You can also manually install them:
@@ -193,11 +190,6 @@ export default class MyHookPlugin extends Plugin {
   }
 }
 ```
-
-### Development
-
-In development mode, hook plugins are automatically reloaded when files change. You can also manually reload by restarting the server or using the plugin's reload API.
-
 ### Error Handling
 
 If a hook plugin throws an error during loading, it will be logged but won't stop other hook plugins from loading. The application will continue running normally.

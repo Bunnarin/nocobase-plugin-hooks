@@ -21,10 +21,6 @@ export class PluginHooksServer extends Plugin {
     this.ensureHooksDirectory();
   }
 
-  async beforeLoad() {
-    // Nothing needed here - hooks are loaded in load()
-  }
-
   async load() {
     // Load hook plugins during the load phase when PluginManager is fully ready
     await this.loadHookPlugins();
@@ -67,7 +63,6 @@ export class PluginHooksServer extends Plugin {
       try {
         const packageJsonContent = (require as any)(packageJsonPath);
         this.hooksPackageJson = packageJsonContent;
-        this.log.info('Loaded hooks package.json:', packageJsonContent.name);
       } catch (error) {
         this.log.error('Error loading hooks package.json:', error);
         this.hooksPackageJson = null;
@@ -88,15 +83,12 @@ export class PluginHooksServer extends Plugin {
     const hasNodeModules = existsSync(nodeModulesPath);
     const hasYarnLock = existsSync(yarnLockPath);
 
-    if (hasNodeModules && hasYarnLock) {
-      this.log.info('Hook dependencies already installed');
-      return;
-    }
+    if (hasNodeModules && hasYarnLock) return;
 
     // Install dependencies using yarn
     try {
       this.log.info('Installing hook dependencies...');
-      
+
       const { execSync } = require('child_process');
       const result = execSync('yarn install', {
         cwd: this.hooksDir,
@@ -113,7 +105,7 @@ export class PluginHooksServer extends Plugin {
 
   private createExampleHooks() {
     const fs = require('fs');
-    
+
     // Create package.json for hooks directory
     const packageJson = {
       name: "nocobase-hooks",
@@ -257,18 +249,18 @@ jspm_packages/
     await this.installHookDependencies();
 
     const hookFiles = this.collectHookFiles(this.hooksDir);
-    
+
     for (const { file, filePath } of hookFiles) {
       // Generate plugin name from relative path: "audit/user-audit.ts" -> "hooks-audit-user-audit"
       const hookPluginName = `hooks-${file.replace(/\.(ts|js)$/, '').replace(/[\/]/g, '-')}`;
 
       try {
         const HookPluginClass = await this.importHookPlugin(filePath);
-          
+
         if (HookPluginClass && typeof HookPluginClass === 'function') {
           // Check if plugin is already registered (happens on reload)
           const existing = this.app.pm.get(hookPluginName);
-          
+
           if (existing) {
             // Plugin already registered — just re-run load() for hot-reload
             // Clear old state so load() can re-register resources
@@ -344,7 +336,7 @@ jspm_packages/
     } catch {
       // not in cache yet
     }
-    
+
     // Load the module and handle __esModule default export pattern
     const m = (require as any)(filePath);
     if (typeof m !== 'object')
