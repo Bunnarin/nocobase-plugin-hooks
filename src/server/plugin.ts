@@ -11,7 +11,6 @@ export interface HookPlugin {
 export class PluginHooksServer extends Plugin {
   private hookPlugins: Map<string, HookPlugin> = new Map();
   private hooksDir: string;
-  private hooksPackageJson: any = null;
   private fileModTimes: Map<string, number> = new Map();
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -57,34 +56,7 @@ export class PluginHooksServer extends Plugin {
       fs.mkdirSync(this.hooksDir, { recursive: true });
   }
 
-  private loadHooksPackageJson() {
-    const packageJsonPath = join(this.hooksDir, 'package.json');
-    if (existsSync(packageJsonPath)) {
-      try {
-        const packageJsonContent = (require as any)(packageJsonPath);
-        this.hooksPackageJson = packageJsonContent;
-      } catch (error) {
-        this.log.error('Error loading hooks package.json:', error);
-        this.hooksPackageJson = null;
-      }
-    } else {
-      this.hooksPackageJson = null;
-    }
-  }
-
   private async installHookDependencies() {
-    if (!this.hooksPackageJson)
-      return;
-
-    const nodeModulesPath = join(this.hooksDir, 'node_modules');
-    const yarnLockPath = join(this.hooksDir, 'yarn.lock');
-
-    // Check if dependencies are already installed
-    const hasNodeModules = existsSync(nodeModulesPath);
-    const hasYarnLock = existsSync(yarnLockPath);
-
-    if (hasNodeModules && hasYarnLock) return;
-
     // Install dependencies using yarn
     try {
       this.log.info('Installing hook dependencies...');
@@ -241,9 +213,6 @@ jspm_packages/
 
     if (!existsSync(this.hooksDir))
       return;
-
-    // Load package.json from hooks directory
-    this.loadHooksPackageJson();
 
     // Install dependencies if needed
     await this.installHookDependencies();
@@ -455,26 +424,6 @@ jspm_packages/
         this.log.error(`Error reloading hook plugin ${name}:`, error);
       }
     }
-  }
-
-  // Public API to get hooks package.json information
-  public getHooksPackageJson(): any {
-    return this.hooksPackageJson;
-  }
-
-  // Public API to get hooks package dependencies
-  public getHooksDependencies(): Record<string, string> {
-    return this.hooksPackageJson?.dependencies || {};
-  }
-
-  // Public API to get hooks package scripts
-  public getHooksScripts(): Record<string, string> {
-    return this.hooksPackageJson?.scripts || {};
-  }
-
-  // Public API to check if hooks package.json exists
-  public hasHooksPackageJson(): boolean {
-    return this.hooksPackageJson !== null;
   }
 }
 

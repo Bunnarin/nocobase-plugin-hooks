@@ -1,13 +1,15 @@
 {
   "name": "@bunnarin/plugin-hooks",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "main": "dist/server/index.js",
   "displayName": "Hooks System",
   "description": "A hooks system similar to PocketBase's pb_hooks, allowing custom code execution in storage/hooks directory",
   "peerDependencies": {
     "@nocobase/client": "2.x",
-    "@nocobase/server": "2.x",
-    "@nocobase/test": "2.x"
+    "@nocobase/server": "2.x"
+  },
+  "devDependencies": {
+    "is-production": "x"
   },
   "license": "Apache-2.0",
   "publishConfig": {
